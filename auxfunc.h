@@ -4,7 +4,13 @@
 #define AUXFUNC_H
 
 #include "structs.h"
-#define N 5
+#include <stdio.h>
+#include <stdlib.h>
+#include <SDL2/SDL.h>
+#include <time.h>
+#include <math.h>
+
+//#define N 2050
 #define WINDOW_HEIGHT 900
 #define WINDOW_WIDTH 900
 
@@ -34,8 +40,8 @@ float sqrd_distance_far(struct Particle a, struct Node b) {
 }
 
 void print_particles(struct Particle* particles) {
-  for (int i = 0; i < N; i++) {
-    printf("Particle %d:\n", particles[i].index);
+  for (int i = 0; i < sizeof(particles) / 8; i++) {
+    printf("Particle %d @ %p:\n", particles[i].index, &particles[i]);
     printf("\tPosition: (%f, %f)\n", particles[i].pos.x, particles[i].pos.y);
     printf("\tVelocity: (%f, %f)\n", particles[i].vel.x, particles[i].vel.y);
     printf("\tMass: %d\n", particles[i].mass);
@@ -72,15 +78,15 @@ struct Particle *init_particles(struct Node* node, int n) {
     node->particles[i].index = i;
     node->num_particles++;
   }
-  return particles;
+  return 0;
 }
 
-struct Node *init_root(float x, float y, int dim) {
-  
-  struct Node* node = malloc(sizeof(struct Node));
-  node->particles = malloc(N * sizeof(struct Particle));
+struct Node *init_root(float x, float y, int dim, int n) {
 
-  init_particles(node, N);
+  struct Node* node = malloc(sizeof(struct Node));
+  node->particles = malloc(n * sizeof(struct Particle));
+  
+  init_particles(node, n);
 
   node->dim = dim;
     
@@ -93,15 +99,23 @@ struct Node *init_root(float x, float y, int dim) {
   node->no_subnodes = 0;
   node->mass = 0;
 
-  node->num_particles = N;
+  node->num_particles = n;
 
   return node;
 }
 
+
 struct Node *init_node(float x, float y, int dim, int index, struct Node* parent_node) {
+
+  // Allocate Memory
+  // Allocate same amount of memory for particle
+  // as parent possesed - this will scale very
+  // badly so TODO: use realloc to increase memory
+  // based on counted particles
   
   struct Node* node = malloc(sizeof(struct Node));
-
+  //node->particles = malloc(node->parent->num_particles * sizeof(struct Particle*));
+  
   node->dim = dim;
     
   node->pos.x = x;
@@ -115,20 +129,19 @@ struct Node *init_node(float x, float y, int dim, int index, struct Node* parent
 
   node->parent = parent_node;
   node->index = index;
-  
-  printf("[DEBUG] init_node...");
+
+  node->num_particles = 0;
   count_particle(node);
 
   return node;
 }
 
-void init_subnode(struct Node* node) {
-
-
+void init_subnodes(struct Node* node) {
 
   float dim = ((float) node->dim) / 2.0;
-  node->no_subnodes = 4;
 
+  // The parent node has now subnodes:
+  node->no_subnodes = 4;
 
   for(int i = 0; i < node->no_subnodes; i++) {
 
@@ -156,45 +169,67 @@ void init_subnode(struct Node* node) {
     }  
 }
 
-int locate_node(struct Node* node, struct Particle* particle) {
+int locate_node(struct Node* node, struct Particle particle) {
 
-  //Determine which subnode to add based on the root node
-  //checking the position relative to the center of root node and
-  //returning the corresponding number of the subnode
+  // Epsilon to help out with edgecases
+  float epsilon = 1e-6;
 
-  printf("[DEBUG] locating particle...");
-
-  if(particle->pos.x < node->pos.x) {
-    if(particle->pos.y > node->pos.y)
-      return 3;
-    else
-      return 2;
-  }
-
-  if(particle->pos.x > node->pos.x) {
-    if(particle->pos.y > node->pos.y)
-      return 1;
-    else
+  if (particle.pos.x < node->pos.x - epsilon) {
+    
+    if (particle.pos.y < node->pos.y - epsilon) {
       return 0;
+      
+    } else {
+      return 2;
+    }
+    
+  } else if (particle.pos.x > node->pos.x + epsilon) {
+    
+    if (particle.pos.y < node->pos.y - epsilon) {
+      return 1;
+      
+    } else {
+      return 3;
+    }
+    
+  } else {
+    return -1; 
   }
-  return -1;
 }
 
 void count_particle(struct Node* node) {
+ 
+  // Allocate Memory for particles based on parent node
+  node->particles = malloc(node->parent->num_particles *  sizeof(struct Particle));
 
-  printf("[DEBUG] Particle counting...");
-  for(int i = 0; i < node->parent->num_particles; i++)
-    if(locate_node(node->parent, node->parent->particles[i]) == node->index)
-      node->num_particles++;
+  // Iterate over all particles in the parent node
+  // And check if they are also in child node
+  for (int i = 0; i < node->parent->num_particles; i++) {
+    if (locate_node(node->parent, node->parent->particles[i]) == node->index) {
+      node->particles[node->num_particles++] = node->parent->particles[i];
+    }
+  }
+  // Reallocate memory if not full space was used
+  if (node->num_particles < node->parent->num_particles) {
+    node->particles = realloc(node->particles, node->num_particles * sizeof(struct Particle));
+  }
 }
 
-void init_tree(struct Node* node, int no_particles) {
+void init_tree(struct Node* node, int level, int cutoff) {
 
-  if(node->num_particles > 1) {
-    init_subnode(node);
-    init_subnode(node->subnodes[1]);
+  //Check how many particle there are
+  //and recursively call init_tree to
+  //build branches until num_particles == 1
+  
+  if(node->num_particles > cutoff) {
+    
+    init_subnodes(node);
+    level++;
+    //cutoff++;
+     
+    for (int i = 0; i < node->no_subnodes; i++) {
+      init_tree(node->subnodes[i], level, cutoff);
+      }
   }
 }
 #endif
-
-
